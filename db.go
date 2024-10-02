@@ -5,14 +5,50 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
-var db *sql.DB
-var counts = 0
+type DbSingleton struct {
+	connection *sql.DB
+}
+
+var (
+	dbInstance *DbSingleton
+	once       sync.Once
+
+// counts     = 0
+)
 
 const dbTimeout = time.Second * 3
 
+func GetInstance(dsn string) *DbSingleton {
+	once.Do(func() {
+		db, err := sql.Open("pgx", dsn)
+		if err != nil {
+			log.Printf("Base de datos no esta lista %v", err)
+		}
+		dbInstance = &DbSingleton{
+			connection: db,
+		}
+	})
+	return dbInstance
+}
+
+func (db *DbSingleton) Close() {
+	if db.connection != nil {
+		err := db.connection.Close()
+		if err != nil {
+			log.Printf("Error al cerrar la base de datos %v", err)
+		}
+	}
+}
+
+func (db *DbSingleton) GetConnection() *sql.DB {
+	return db.connection
+}
+
+/*
 func OpenDatabase(dsn string) *sql.DB {
 	for {
 		connection, err := openDB(dsn)
@@ -21,7 +57,7 @@ func OpenDatabase(dsn string) *sql.DB {
 			counts++
 		} else {
 			log.Println("Base de datos conectada")
-			db = connection
+			dbInstance = connection
 			return connection
 		}
 		if counts > 10 {
@@ -45,9 +81,10 @@ func openDB(dsn string) (*sql.DB, error) {
 	}
 	return db, nil
 }
+*/
 
 func Exec(query string, args ...interface{}) (sql.Result, error) {
-	result, err := db.Exec(query, args...)
+	result, err := dbInstance.connection.Exec(query, args...)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -55,7 +92,7 @@ func Exec(query string, args ...interface{}) (sql.Result, error) {
 }
 
 func Query(query string, args ...interface{}) (*sql.Rows, error) {
-	rows, err := db.Query(query, args)
+	rows, err := dbInstance.connection.Query(query, args)
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -66,7 +103,7 @@ func QueryRowContext(query string, args ...interface{}) error {
 	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
 	defer cancel()
 	var newId int
-	err := db.QueryRowContext(ctx, query, args).Scan(&newId)
+	err := dbInstance.connection.QueryRowContext(ctx, query, args).Scan(&newId)
 	if err != nil {
 		log.Println("Error en el registro:", err)
 		return err
@@ -74,6 +111,8 @@ func QueryRowContext(query string, args ...interface{}) error {
 	return nil
 }
 
+/*
 func Close() {
-	db.Close()
+	dbInstance.Close()
 }
+*/
